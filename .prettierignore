@@ -1,0 +1,18 @@
+# Build output
+.svelte-kit/
+.vercel/
+build/
+dist/
+test-results/
+playwright-report/
+
+# Dependencies
+node_modules/
+
+# Generated / vendor assets
+static/models/
+static/icons/*.png
+package-lock.json
+
+# Test artifacts
+coverage/

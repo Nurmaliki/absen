@@ -62,7 +62,7 @@ export function centerScore(box: FaceBox, frameWidth: number, frameHeight: numbe
 
 /** Mean + variance of grayscale luminance of a canvas. Returns 0..1 normalized values. */
 export function luminanceStats(
-	ctx: CanvasRenderingContext2D,
+	ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
 	width: number,
 	height: number
 ): { mean: number; contrast: number } {

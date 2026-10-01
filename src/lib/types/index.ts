@@ -106,9 +106,20 @@ export interface AppSettings {
 	recognitionThreshold: number;
 	recognitionMargin: number;
 	livenessEnabled: boolean;
+	/** Enable blink/head-turn challenge in addition to passive antispoof. */
+	livenessChallengeEnabled?: boolean;
 	cameraDeviceId?: string;
 	autoLockMinutes: number;
 	backupReminderDays: number;
+	/** ISO timestamp of the last successful backup download, used for reminders. */
+	lastBackupAt?: string;
+	/** Keep the screen awake while a scanning view is open (best-effort). */
+	keepAwakeWhileScanning?: boolean;
+	/**
+	 * Which face-engine path to use. `auto` prefers the Web Worker (off the UI thread) and
+	 * falls back to the main thread; `worker`/`main` force a specific path for troubleshooting.
+	 */
+	faceEngineMode?: 'auto' | 'worker' | 'main';
 	onboardingComplete: boolean;
 	createdAt: string;
 	updatedAt: string;

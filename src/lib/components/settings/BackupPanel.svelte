@@ -10,6 +10,7 @@
 	} from '$lib/backup/backup';
 	import { restoreBackup } from '$lib/backup/restore';
 	import { downloadBlob } from '$lib/reports/share';
+	import { saveSettings } from '$lib/db/settings';
 	import { toasts } from '$lib/stores/toast.svelte';
 
 	let showBackup = $state(false);
@@ -33,6 +34,8 @@
 		try {
 			const { blob } = await createBackup(backupPassword);
 			downloadBlob(blob, backupFilename());
+			// Record the moment of a successful backup so the reminder banner can reset.
+			await saveSettings({ lastBackupAt: new Date().toISOString() });
 			toasts.success('Backup terenkripsi berhasil dibuat. Simpan file dengan aman.');
 			showBackup = false;
 			backupPassword = '';

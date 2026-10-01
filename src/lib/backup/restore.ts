@@ -1,6 +1,7 @@
 import { getDb, setDb, isBrowser, AttendanceDatabase } from '$lib/db/database';
 import type { BackupData } from '$lib/types';
 import { writeAudit } from '$lib/db/audit';
+import { broadcastSync } from '$lib/db/sync';
 
 /**
  * Restore engine.
@@ -53,6 +54,7 @@ export async function restoreBackup(data: BackupData): Promise<void> {
 		entityType: 'database',
 		description: `Restore database (${data.students.length} siswa, ${data.attendanceRecords.length} absensi)`
 	});
+	broadcastSync({ kind: 'data:restored' });
 }
 
 /** Wipe every table. Backs up nothing itself — callers handle the pre-wipe backup offer. */
@@ -84,6 +86,7 @@ export async function resetAllData(): Promise<void> {
 			]);
 		}
 	);
+	broadcastSync({ kind: 'data:reset' });
 }
 
 /**

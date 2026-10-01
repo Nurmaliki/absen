@@ -3,9 +3,13 @@
 	import { browser } from '$app/environment';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import LiveScanner from '$lib/components/LiveScanner.svelte';
+	import QrScanner from '$lib/components/QrScanner.svelte';
+	import ManualEntryDialog from '$lib/components/ManualEntryDialog.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
+	import { onSync } from '$lib/db/sync';
+	import { kiosk } from '$lib/stores/kiosk.svelte';
 	import { listClasses } from '$lib/db/classes';
 	import { listStudents, getFaceTemplatesForStudents } from '$lib/db/students';
 	import {
@@ -53,11 +57,12 @@
 	// Manual entry
 	let showManual = $state(false);
 	let manualStudentId = $state('');
-	let manualStatus = $state<AttendanceStatus>('present');
-	let manualNotes = $state('');
 
 	// Close session
 	let showClose = $state(false);
+
+	// Scanning mode: face is the default, QR is the fallback when a face fails or is missing.
+	let scanMode = $state<'face' | 'qr'>('face');
 
 	let studentMap = $derived(new Map(students.map((s) => [s.id, s])));
 	let counts = $derived(summarizeSession(students, records));
@@ -65,19 +70,37 @@
 	let classMap = $derived(new Map(classes.map((c) => [c.id, c.name])));
 	let selectedClass = $derived(classes.find((c) => c.id === selectedClassId));
 
-	onMount(async () => {
-		if (!browser) return;
-		try {
-			const [cls, settings] = await Promise.all([listClasses(), getSettings()]);
-			classes = cls;
-			entryTime = settings.defaultEntryTime;
-			lateThreshold = settings.lateThreshold;
-			if (classes.length > 0) selectedClassId = classes[0].id;
-		} catch (e) {
-			toasts.error(e instanceof Error ? e.message : 'Gagal memuat data.');
-		} finally {
-			loading = false;
+	onMount(() => {
+		let unsubscribe: (() => void) | undefined;
+
+		if (browser) {
+			(async () => {
+				try {
+					const [cls, settings] = await Promise.all([listClasses(), getSettings()]);
+					classes = cls;
+					entryTime = settings.defaultEntryTime;
+					lateThreshold = settings.lateThreshold;
+					if (classes.length > 0) selectedClassId = classes[0].id;
+				} catch (e) {
+					toasts.error(e instanceof Error ? e.message : 'Gagal memuat data.');
+				} finally {
+					loading = false;
+				}
+			})();
+
+			// Reflect attendance changes made in another tab (same class/session).
+			unsubscribe = onSync((event) => {
+				if (event.kind !== 'attendance:changed') return;
+				if (session && (!event.sessionId || event.sessionId === session.id)) {
+					refreshRecords();
+				}
+			});
 		}
+
+		return () => {
+			unsubscribe?.();
+			kiosk.exit();
+		};
 	});
 
 	async function loadClassData() {
@@ -154,24 +177,56 @@
 		}
 	}
 
-	async function submitManual(event: SubmitEvent) {
-		event.preventDefault();
-		if (!session || !manualStudentId) return;
+	/**
+	 * QR fallback: resolve a scanned card to a student in the current class and record
+	 * attendance. Uses the same anti-duplicate repository path as face/manual.
+	 */
+	async function handleQrScanned(payload: { studentId: string; nis: string }): Promise<boolean> {
+		if (!session) return true; // keep scanning; nothing to record into
+		const student = studentMap.get(payload.studentId);
+		if (!student) {
+			toasts.warning('Kartu QR tidak cocok dengan siswa di kelas ini.');
+			return true;
+		}
 		try {
 			const record = await recordManualAttendance({
 				sessionId: session.id,
-				studentId: manualStudentId,
-				status: manualStatus,
-				notes: manualNotes || undefined
+				studentId: student.id,
+				status: 'present',
+				notes: 'Absensi via QR'
 			});
 			records = [...records, record];
-			const student = studentMap.get(manualStudentId);
+			toasts.success(`${student.name} — ${STATUS_LABELS[record.status]} tercatat (QR).`);
+		} catch (e) {
+			if (e instanceof DuplicateAttendanceError) {
+				toasts.info(`${student.name} sudah melakukan absensi.`);
+			} else {
+				toasts.error(e instanceof Error ? e.message : 'Gagal menyimpan absensi QR.');
+			}
+		}
+		return true;
+	}
+
+	async function submitManual(input: {
+		studentId: string;
+		status: AttendanceStatus;
+		notes?: string;
+	}) {
+		if (!session) return;
+		try {
+			const record = await recordManualAttendance({
+				sessionId: session.id,
+				studentId: input.studentId,
+				status: input.status,
+				notes: input.notes
+			});
+			records = [...records, record];
+			const student = studentMap.get(input.studentId);
 			toasts.success(
 				`${student?.name ?? 'Siswa'} — ${STATUS_LABELS[record.status]} dicatat manual.`
 			);
 			showManual = false;
 			manualStudentId = '';
-			manualNotes = '';
 		} catch (e) {
 			if (e instanceof DuplicateAttendanceError) {
 				toasts.warning('Siswa ini sudah memiliki catatan absensi pada sesi ini.');
@@ -183,8 +238,6 @@
 
 	function openManualFor(studentId: string) {
 		manualStudentId = studentId;
-		manualStatus = 'present';
-		manualNotes = '';
 		showManual = true;
 	}
 
@@ -266,7 +319,12 @@
 			</p>
 		</div>
 		<div class="flex gap-2">
-			<button class="btn-secondary" onclick={() => (showManual = true)}>Absensi Manual</button>
+			<button class="btn-secondary" onclick={() => openManualFor('')}>Absensi Manual</button>
+			{#if !kiosk.active}
+				<button class="btn-secondary" onclick={() => kiosk.enter()}>Mode Kios</button>
+			{:else}
+				<button class="btn-secondary" onclick={() => kiosk.exit()}>Keluar Kios</button>
+			{/if}
 			{#if session.status === 'open'}
 				<button class="btn-danger" onclick={() => (showClose = true)}>Tutup Absensi</button>
 			{:else}
@@ -298,27 +356,45 @@
 	<div class="grid gap-4 lg:grid-cols-2">
 		<div>
 			{#if session.status === 'open'}
-				<LiveScanner
-					{templates}
-					students={studentMap}
-					threshold={appSettings.value.recognitionThreshold}
-					margin={appSettings.value.recognitionMargin}
-					livenessEnabled={appSettings.value.livenessEnabled}
-					onrecognized={handleRecognized}
-					paused={showManual || showClose}
-				/>
+				{#if scanMode === 'face'}
+					<LiveScanner
+						{templates}
+						students={studentMap}
+						threshold={appSettings.value.recognitionThreshold}
+						margin={appSettings.value.recognitionMargin}
+						livenessEnabled={appSettings.value.livenessEnabled}
+						challengeEnabled={appSettings.value.livenessChallengeEnabled ?? false}
+						onrecognized={handleRecognized}
+						paused={showManual || showClose}
+					/>
+				{:else}
+					<QrScanner deviceId={appSettings.value.cameraDeviceId} onscanned={handleQrScanned} />
+				{/if}
 			{:else}
 				<div class="rounded-2xl bg-slate-100 p-8 text-center dark:bg-slate-800">
 					<p class="text-sm text-slate-500">Kamera dinonaktifkan karena sesi sudah ditutup.</p>
 				</div>
 			{/if}
 
-			{#if templates.length === 0}
+			{#if session.status === 'open'}
+				<div class="mt-3 flex gap-2">
+					<button
+						class={scanMode === 'face' ? 'btn-primary' : 'btn-secondary'}
+						onclick={() => (scanMode = 'face')}>Wajah</button
+					>
+					<button
+						class={scanMode === 'qr' ? 'btn-primary' : 'btn-secondary'}
+						onclick={() => (scanMode = 'qr')}>Kartu QR</button
+					>
+				</div>
+			{/if}
+
+			{#if templates.length === 0 && scanMode === 'face'}
 				<p
 					class="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200"
 				>
-					Belum ada siswa di kelas ini yang memiliki wajah terdaftar. Daftarkan wajah atau gunakan
-					absensi manual.
+					Belum ada siswa di kelas ini yang memiliki wajah terdaftar. Daftarkan wajah, gunakan kartu
+					QR, atau absensi manual.
 				</p>
 			{/if}
 		</div>
@@ -369,43 +445,14 @@
 {/if}
 
 <!-- Manual attendance modal -->
-<Modal open={showManual} title="Absensi Manual" onclose={() => (showManual = false)}>
-	<form onsubmit={submitManual} class="space-y-4">
-		<div>
-			<label class="label" for="manual-student">Siswa</label>
-			<select id="manual-student" bind:value={manualStudentId} class="input" required>
-				<option value="">Pilih siswa</option>
-				{#each students as s (s.id)}
-					<option value={s.id} disabled={records.some((r) => r.studentId === s.id)}>
-						{s.name} ({s.nis}){records.some((r) => r.studentId === s.id) ? ' — sudah tercatat' : ''}
-					</option>
-				{/each}
-			</select>
-		</div>
-		<div>
-			<label class="label" for="manual-status">Status</label>
-			<select id="manual-status" bind:value={manualStatus} class="input">
-				{#each MANUAL_STATUSES as status (status)}
-					<option value={status}>{STATUS_LABELS[status]}</option>
-				{/each}
-			</select>
-		</div>
-		<div>
-			<label class="label" for="manual-notes">Catatan (opsional)</label>
-			<input
-				id="manual-notes"
-				bind:value={manualNotes}
-				class="input"
-				placeholder="contoh: surat dokter"
-			/>
-		</div>
-		<div class="flex justify-end gap-2">
-			<button type="button" class="btn-secondary" onclick={() => (showManual = false)}>Batal</button
-			>
-			<button type="submit" class="btn-primary" disabled={!manualStudentId}>Simpan</button>
-		</div>
-	</form>
-</Modal>
+<ManualEntryDialog
+	open={showManual}
+	{students}
+	{records}
+	initialStudentId={manualStudentId}
+	onsubmit={submitManual}
+	onclose={() => (showManual = false)}
+/>
 
 <!-- Close session modal -->
 <Modal

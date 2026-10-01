@@ -70,10 +70,16 @@ npm run test:e2e
 
 Cakupan unit: aturan absensi (present/late), anti-duplikat, agregasi laporan, validasi impor,
 serialisasi backup, validasi restore, migrasi skema, penilaian kualitas wajah, matcher, kriptografi,
-sanitasi spreadsheet, dan penanganan waktu.
+sanitasi spreadsheet, penanganan waktu, adapater & core mesin wajah, engine Web Worker, payload QR,
+sinkronisasi antar-tab, dan taksonomi error penyimpanan.
 
 Cakupan E2E: onboarding, master kelas/siswa, impor, sesi absensi, duplikat, absensi manual, koreksi,
-tutup sesi, laporan, backup, restore, PIN lock, offline banner, kamera ditolak, dan reset.
+tutup sesi, laporan, backup, restore, PIN lock, offline banner, kamera ditolak, reset, mode kios,
+kartu QR, dan pemindai QR.
+
+> Catatan E2E pada mesin ber-RAM kecil: alih-alih membiarkan Playwright melakukan build+preview
+> sendiri (yang bisa OOM di tengah jalan), jalankan `npm run build` lalu
+> `npm run preview -- --port 4173`, kemudian `PW_REUSE_SERVER=1 npx playwright test`.
 
 ## Build
 
@@ -299,16 +305,78 @@ SvelteKit PWA (Vercel hosting)
    |
    +-- Application Shell (+layout, navigasi)
    +-- Camera  -> Deteksi -> Quality Gate -> Liveness -> Descriptor -> Matching
+   |      (inferensi dijalankan di Web Worker agar UI tidak tersendat)
    +-- Attendance Engine (aturan present/late, anti-duplikat, audit)
-   +-- IndexedDB (Dexie)  -> data utama
+   +-- IndexedDB (Dexie)  -> data utama  <---- BroadcastChannel (sinkron antar-tab)
    +-- Reporting Engine   -> XLSX / CSV / PDF
    +-- Backup Engine      -> AES-GCM terenkripsi
+   +-- QR Fallback        -> @zxing/browser (baca & tulis kode QR)
    +-- Web Share API      -> WhatsApp / Email / aplikasi lain
 ```
 
 Business logic dipisahkan dari komponen Svelte: aturan absensi (`$lib/attendance`), akses data
 (`$lib/db`), mesin wajah (`$lib/face`), laporan (`$lib/reports`), backup (`$lib/backup`), dan
 keamanan (`$lib/security`).
+
+---
+
+## Pemrosesan Wajah di Web Worker
+
+Inferensi TFJS berjalan di **Web Worker** (`src/lib/face/face.worker.ts`) sehingga thread utama
+tetap bebas untuk render, input, dan frame kamera. Ini penting agar UI tidak tersendat di
+perangkat kelas ber-RAM kecil.
+
+- Sumber frame dikirim sebagai `ImageBitmap` (transferable) — tidak menyalin piksel.
+- `compare()` (jarak vektor 1024-dimensi) tetap di thread utama karena lebih cepat daripada
+  bolak-balik ke worker.
+- Mesin yang sama (`HumanEngineCore` di `src/lib/face/core.ts`) dipakai baik oleh worker maupun
+  fallback thread utama (`HumanFaceEngine`), sehingga perilaku identik.
+- Mode dapat dipaksa dari **Pengaturan → Pemrosesan Wajah** (`auto` / `worker` / `main`) untuk
+  troubleshooting. Browser tanpa `Worker` + `OffscreenCanvas` otomatis memakai thread utama.
+- Bila model gagal dimuat (mis. berkas `/models` tidak tersedia saat deploy), UI menampilkan
+  pesan spesifik beserta tombol **Coba Lagi** alih-alih berhenti di "Memuat model…" selamanya.
+
+## Sinkronisasi Antar-Tab
+
+IndexedDB dibagikan antar tab pada origin yang sama, tetapi state di memori tidak. Aplikasi
+mengirim sinyal perubahan melalui `BroadcastChannel` (`src/lib/db/sync.ts`) dan setiap tab
+membaca ulang data yang terpengaruh:
+
+- Perubahan absensi di satu tab langsung tercermin di tab lain.
+- Perubahan pengaturan disinkronkan otomatis.
+- `data:reset` / `data:restored` memuat ulang tab lain agar tidak memakai data basi.
+
+Bila `BroadcastChannel` tidak tersedia (browser lama, mode privat), aplikasi tetap berjalan
+normal per-tab.
+
+## Ketahanan Penyimpanan (Quota & Blocked)
+
+Aplikasi menerjemahkan error IndexedDB menjadi pesan yang bisa ditindaklanjuti
+(`src/lib/db/errors.ts`):
+
+- **Quota penuh** (`QuotaExceededError`) → saran membuat backup lalu menghapus data lama.
+- **Upgrade terblokir** (`blocked`) → banner "tutup tab lain lalu muat ulang".
+- **Database hilang** (`versionchange`) → muat ulang otomatis.
+
+Penulisan berisiko (tambah siswa, absensi, template wajah) dibungkus `withStorageGuards()`.
+
+## Mode Kios
+
+Untuk tablet di depan kelas: tombol **Mode Kios** di halaman Absensi menyembunyikan sidebar &
+navigasi bawah serta meminta layar penuh (best-effort), sehingga hanya kamera, daftar siswa, dan
+penghitung yang terlihat. Keluar dengan **Keluar Kios** atau tombol Esc (sinkron via
+`fullscreenchange`).
+
+## Cadangan QR (Fallback Absensi)
+
+Bila pengenalan wajah gagal atau siswa belum punya wajah terdaftar, absensi dapat dicatat lewat
+**kartu QR**:
+
+- Kartu QR dibuat lokal (`@zxing/browser`) di halaman registrasi wajah siswa — tidak ada data
+  yang dikirim ke mana pun. Tombol **Cetak Kartu** membuka jendela cetak.
+- Pemindai QR (`QrScanner.svelte`) tersedia pada mode **Kartu QR** di halaman Absensi.
+- Format payload `ABSEN:<id>:<nis>` divalidasi ketat; kode QR lain (poster, tautan) diabaikan,
+  sehingga tidak bisa mencatat absensi palsu.
 
 ---
 

@@ -3,6 +3,7 @@ import type { SchoolClass } from '$lib/types';
 import { uuid } from '$lib/utils/id';
 import { nowIso } from '$lib/utils/time';
 import { writeAudit } from './audit';
+import { broadcastSync } from './sync';
 
 export interface ClassInput {
 	name: string;
@@ -70,6 +71,7 @@ export async function createClass(input: ClassInput): Promise<SchoolClass> {
 		entityId: record.id,
 		description: `Menambah kelas ${record.name} (${record.academicYear})`
 	});
+	broadcastSync({ kind: 'classes:changed' });
 	return record;
 }
 
@@ -88,6 +90,7 @@ export async function updateClass(id: string, input: Partial<ClassInput>): Promi
 		entityId: id,
 		description: `Memperbarui kelas ${input.name ?? id}`
 	});
+	broadcastSync({ kind: 'classes:changed' });
 }
 
 export async function setClassActive(id: string, active: boolean): Promise<void> {
@@ -98,6 +101,7 @@ export async function setClassActive(id: string, active: boolean): Promise<void>
 		entityId: id,
 		description: `${active ? 'Mengaktifkan' : 'Menonaktifkan'} kelas`
 	});
+	broadcastSync({ kind: 'classes:changed' });
 }
 
 /** Distinct academic years & semesters for filter dropdowns. */

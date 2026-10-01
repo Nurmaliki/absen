@@ -2,6 +2,7 @@ import { getDb } from './database';
 import type { AppSettings } from '$lib/types';
 import { nowIso } from '$lib/utils/time';
 import { writeAudit } from './audit';
+import { broadcastSync } from './sync';
 
 /** Conservative default recognition threshold — see docs/SECURITY.md & settings page help text. */
 export const DEFAULT_RECOGNITION_THRESHOLD = 0.5;
@@ -20,6 +21,7 @@ export const DEFAULT_SETTINGS: Omit<AppSettings, 'createdAt' | 'updatedAt'> = {
 	cameraDeviceId: undefined,
 	autoLockMinutes: 15,
 	backupReminderDays: 7,
+	faceEngineMode: 'auto',
 	onboardingComplete: false
 };
 
@@ -44,6 +46,7 @@ export async function saveSettings(
 		entityId: 'app',
 		description: `Memperbarui pengaturan: ${Object.keys(patch).join(', ') || '-'}`
 	});
+	broadcastSync({ kind: 'settings:changed' });
 	return next;
 }
 

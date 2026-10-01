@@ -1,6 +1,7 @@
 export * from './types';
 export * from './engine';
 export { HumanFaceEngine, MODEL_BASE_PATH } from './adapter';
+export { WorkerFaceEngine } from './worker-engine';
 export {
 	cosineDistance,
 	euclideanDistance,

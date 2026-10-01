@@ -1,8 +1,9 @@
-import { getDb } from './database';
+import { getDb, withStorageGuards } from './database';
 import type { FaceTemplate, Student } from '$lib/types';
 import { normalizeIdentifier, normalizeName, uuid } from '$lib/utils/id';
 import { nowIso } from '$lib/utils/time';
 import { writeAudit } from './audit';
+import { broadcastSync } from './sync';
 
 export interface StudentInput {
 	nis: string;
@@ -68,13 +69,14 @@ export async function createStudent(input: StudentInput): Promise<Student> {
 		createdAt: timestamp,
 		updatedAt: timestamp
 	};
-	await getDb().students.add(record);
+	await withStorageGuards(() => getDb().students.add(record));
 	await writeAudit({
 		action: 'create_student',
 		entityType: 'student',
 		entityId: record.id,
 		description: `Menambah siswa ${record.name} (NIS ${record.nis})`
 	});
+	broadcastSync({ kind: 'students:changed', classId: record.classId });
 	return record;
 }
 
@@ -98,6 +100,7 @@ export async function updateStudent(id: string, input: Partial<StudentInput>): P
 		entityId: id,
 		description: `Memperbarui siswa ${input.name ?? id}`
 	});
+	broadcastSync({ kind: 'students:changed', classId: patch.classId });
 }
 
 export async function setStudentActive(id: string, active: boolean): Promise<void> {
@@ -108,6 +111,7 @@ export async function setStudentActive(id: string, active: boolean): Promise<voi
 		entityId: id,
 		description: `${active ? 'Mengaktifkan' : 'Menonaktifkan'} siswa`
 	});
+	broadcastSync({ kind: 'students:changed' });
 }
 
 /** Delete a student and their face templates in a single transaction, then audit. */
@@ -123,10 +127,12 @@ export async function deleteStudent(id: string): Promise<void> {
 		entityId: id,
 		description: 'Menghapus data siswa'
 	});
+	broadcastSync({ kind: 'students:changed' });
 }
 
 export async function setFaceRegistered(studentId: string, registered: boolean): Promise<void> {
 	await getDb().students.update(studentId, { faceRegistered: registered, updatedAt: nowIso() });
+	broadcastSync({ kind: 'students:changed' });
 }
 
 export async function saveFaceTemplate(
@@ -143,10 +149,12 @@ export async function saveFaceTemplate(
 		updatedAt: timestamp
 	};
 
-	await db.transaction('rw', db.faceTemplates, db.students, async () => {
-		await db.faceTemplates.put(record);
-		await db.students.update(template.studentId, { faceRegistered: true, updatedAt: timestamp });
-	});
+	await withStorageGuards(() =>
+		db.transaction('rw', db.faceTemplates, db.students, async () => {
+			await db.faceTemplates.put(record);
+			await db.students.update(template.studentId, { faceRegistered: true, updatedAt: timestamp });
+		})
+	);
 
 	await writeAudit({
 		action: existing ? 'face_reregister' : 'face_register',
@@ -154,6 +162,7 @@ export async function saveFaceTemplate(
 		entityId: record.id,
 		description: `${existing ? 'Registrasi ulang' : 'Registrasi'} wajah siswa`
 	});
+	broadcastSync({ kind: 'students:changed' });
 	return record;
 }
 
@@ -179,4 +188,5 @@ export async function deleteFaceTemplate(studentId: string): Promise<void> {
 		entityId: studentId,
 		description: 'Menghapus data wajah siswa'
 	});
+	broadcastSync({ kind: 'students:changed' });
 }

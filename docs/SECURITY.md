@@ -59,10 +59,26 @@ permukaan serangan bergeser dari server ke **perangkat pengguna**.
 ## 3. Perlindungan Template Biometrik
 
 - Descriptor wajah disimpan lokal; **tidak** dikirim ke API pihak ketiga atau layanan cloud.
+- **Inferensi berjalan di Web Worker lokal** (`src/lib/face/face.worker.ts`): frame kamera
+  dikirim sebagai `ImageBitmap` dari thread utama ke worker _dalam origin yang sama_ — tidak ada
+  koneksi jaringan. Worker tidak memiliki akses jaringan maupun penyimpanan; hanya menerima
+  piksel dan mengembalikan vektor.
 - Tidak ada klaim bahwa descriptor tidak dapat dibalik menjadi wajah. Model embedding umumnya
   tidak sepenuhnya non-invertible; ini adalah risiko residual yang diterima untuk kegunaan sekolah.
 - Penghapusan siswa atau "Daftar Ulang" mengganti template; tidak menyimpan riwayat templat lama.
 - Untuk menghapus semua biometrik: hapus siswa bersangkutan, atau "Hapus Semua Data".
+
+---
+
+## 3a. Cadangan QR Absensi
+
+- Kode QR berisi hanya ID siswa lokal + NIS (`ABSEN:<id>:<nis>`) — **bukan** biometrik atau data
+  pribadi lainnya. Kartu dapat dicetak/ditampilkan tanpa mengungkap template wajah.
+- Payload divalidasi ketat (`parseQrPayload`): kode QR asing (poster, tautan) diabaikan dan tidak
+  dapat mencatat absensi. Verifikasi tambahan: kartu tetap harus cocok dengan siswa **di kelas
+  sesi yang aktif**, jika tidak, absensi ditolak.
+- Pembacaan QR sepenuhnya lokal (`@zxing/browser`); tidak ada frame atau nilai hasil dekode yang
+  dikirim keluar perangkat.
 
 ---
 

@@ -7,9 +7,11 @@
 	import {
 		CHALLENGE_INSTRUCTIONS,
 		createBlinkTracker,
+		createTurnTracker,
 		DEFAULT_LIVENESS,
 		evaluatePassive,
 		eyeOpenness,
+		headYaw,
 		pickChallenge,
 		type LivenessConfig
 	} from '$lib/face/liveness';
@@ -34,6 +36,8 @@
 		threshold: number;
 		margin: number;
 		livenessEnabled: boolean;
+		/** When true, require a blink gesture before accepting a match (stronger anti-spoof). */
+		challengeEnabled?: boolean;
 		/** Called once per successful identification (caller persists). */
 		onrecognized: (
 			student: Student,
@@ -49,6 +53,7 @@
 		threshold,
 		margin,
 		livenessEnabled,
+		challengeEnabled = false,
 		onrecognized,
 		paused = false
 	}: Props = $props();
@@ -59,27 +64,36 @@
 	let statusMessage = $state('Arahkan wajah ke kamera.');
 	let lastRecognized = $state<{ student: Student; time: string; duplicate: boolean } | null>(null);
 	let engineReady = $state(false);
+	let engineError = $state('');
 
 	let processing = false;
 	let cooldownUntil = 0;
 	let challenge: 'blink' | 'turn-left' | 'turn-right' | null = null;
 	let challengeStartedAt = 0;
 	const blinkTracker = createBlinkTracker();
+	let turnTracker: ReturnType<typeof createTurnTracker> | null = null;
 	const livenessConfig: LivenessConfig = DEFAULT_LIVENESS;
 
 	const TARGET_FPS = 8;
 	let lastFrame = 0;
 
 	onMount(() => {
+		initializeEngine();
+	});
+
+	async function initializeEngine() {
+		engineError = '';
 		const engine = getFaceEngine();
 		engineReady = engine.isReady();
-		if (!engineReady) {
-			engine
-				.initialize()
-				.then(() => (engineReady = true))
-				.catch(() => (engineReady = false));
+		if (engineReady) return;
+		try {
+			await engine.initialize();
+			engineReady = true;
+		} catch (error) {
+			engineReady = false;
+			engineError = error instanceof Error ? error.message : 'Gagal memuat model pengenalan wajah.';
 		}
-	});
+	}
 
 	onDestroy(() => {
 		blinkTracker.reset();
@@ -123,6 +137,13 @@
 					status = 'searching';
 					statusMessage = passiveResult.message;
 					return;
+				}
+
+				// Active challenge (opt-in): require a blink before we trust the frame. This is
+				// deliberately checked *before* the descriptor so a photo can never short-circuit it.
+				if (challengeEnabled) {
+					const passed = updateChallenge(faces[0]?.mesh);
+					if (!passed) return;
 				}
 			}
 
@@ -179,11 +200,72 @@
 				duplicate: resultFlag === 'duplicate'
 			};
 			cooldownUntil = performance.now() + 2500;
+			// Force a fresh challenge for the next student.
+			challenge = null;
+			turnTracker = null;
+			blinkTracker.reset();
 		} catch {
 			// ignore frame errors
 		} finally {
 			processing = false;
 		}
+	}
+
+	/**
+	 * Run the challenge–response gesture. Returns true once the gesture is satisfied.
+	 *
+	 * The challenge is chosen lazily and timed: if it expires we pick a new one so the operator
+	 * is never stuck. Blink is primary (most reliable on loose front-camera framing); head-turn
+	 * is the fallback when landmarks are unavailable for blink.
+	 */
+	function updateChallenge(mesh: { x: number; y: number }[] | undefined): boolean {
+		const now = performance.now();
+		if (!challenge) {
+			challenge = pickChallenge();
+			challengeStartedAt = now;
+			turnTracker =
+				challenge === 'turn-left'
+					? createTurnTracker('left')
+					: challenge === 'turn-right'
+						? createTurnTracker('right')
+						: null;
+			blinkTracker.reset();
+			status = 'challenge';
+			statusMessage = CHALLENGE_INSTRUCTIONS[challenge];
+			return false;
+		}
+
+		if (now - challengeStartedAt > livenessConfig.challengeTimeoutMs) {
+			// Timed out — restart with a fresh challenge rather than blocking forever.
+			challenge = null;
+			blinkTracker.reset();
+			turnTracker = null;
+			return false;
+		}
+
+		if (!mesh || mesh.length < 400) {
+			status = 'challenge';
+			statusMessage = CHALLENGE_INSTRUCTIONS[challenge];
+			return false;
+		}
+
+		let passed = false;
+		if (challenge === 'blink') {
+			passed = blinkTracker.update(eyeOpenness(mesh), now);
+		} else if (turnTracker) {
+			passed = turnTracker.update(headYaw(mesh));
+		}
+
+		if (passed) {
+			challenge = null;
+			turnTracker = null;
+			blinkTracker.reset();
+			return true;
+		}
+
+		status = 'challenge';
+		statusMessage = CHALLENGE_INSTRUCTIONS[challenge];
+		return false;
 	}
 
 	const statusStyles: Record<string, string> = {
@@ -201,14 +283,23 @@
 
 	{#if !engineReady}
 		<div
-			class="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/70 text-white"
+			class="absolute inset-0 flex items-center justify-center rounded-2xl bg-black/70 px-4 text-white"
 		>
-			<div class="text-center">
-				<div
-					class="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-3 border-white/30 border-t-white"
-				></div>
-				<p class="text-sm">Memuat model pengenalan wajah…</p>
-			</div>
+			{#if engineError}
+				<div class="text-center">
+					<div class="text-2xl" aria-hidden="true">⚠️</div>
+					<p class="mt-1 text-sm">Model pengenalan wajah gagal dimuat.</p>
+					<p class="mt-1 text-xs text-white/70">{engineError}</p>
+					<button class="btn-secondary mt-3" onclick={initializeEngine}>Coba Lagi</button>
+				</div>
+			{:else}
+				<div class="text-center">
+					<div
+						class="mx-auto mb-2 h-8 w-8 animate-spin rounded-full border-3 border-white/30 border-t-white"
+					></div>
+					<p class="text-sm">Memuat model pengenalan wajah…</p>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>

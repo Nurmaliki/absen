@@ -24,6 +24,7 @@
 	import { workbookToBlob } from '$lib/reports/xlsx';
 	import { downloadBlob } from '$lib/reports/share';
 	import { toasts } from '$lib/stores/toast.svelte';
+	import { describeStorageError } from '$lib/db/errors';
 	import { matchesQuery } from '$lib/utils/id';
 
 	let students = $state<Student[]>([]);
@@ -114,7 +115,8 @@
 			showForm = false;
 			await refresh();
 		} catch (e) {
-			formError = e instanceof Error ? e.message : 'Gagal menyimpan siswa.';
+			const { message, action } = describeStorageError(e);
+			formError = action ? `${message} ${action}` : message;
 		} finally {
 			saving = false;
 		}

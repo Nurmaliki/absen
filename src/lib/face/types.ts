@@ -11,7 +11,12 @@ export interface DetectedFace {
 	box: FaceBox;
 	/** Detection confidence 0..1. */
 	score: number;
-	/** Raw engine landmarks (if available), opaque to callers. */
+	/**
+	 * Normalized facemesh landmarks (0..1 coordinates), when the engine provides them.
+	 * Used by the challenge–response liveness flow. Sent across the worker as plain numbers.
+	 */
+	mesh?: { x: number; y: number }[];
+	/** Raw engine landmarks (if available), opaque to callers. Not sent across the worker. */
 	raw?: unknown;
 }
 
@@ -74,4 +79,9 @@ export interface FaceEngine {
 }
 
 export type ImageSource =
-	HTMLCanvasElement | HTMLImageElement | HTMLVideoElement | ImageBitmap | ImageData;
+	| HTMLCanvasElement
+	| HTMLImageElement
+	| HTMLVideoElement
+	| ImageBitmap
+	| ImageData
+	| OffscreenCanvas;

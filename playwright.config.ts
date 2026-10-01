@@ -59,7 +59,11 @@ export default defineConfig({
 		// Always start a fresh build+preview. Reusing an arbitrarily-old preview server can
 		// silently serve a stale bundle (and a manually-killed server yields
 		// `net::ERR_CONNECTION_REFUSED` mid-run), which produces failures unrelated to the code.
-		reuseExistingServer: false,
-		timeout: 180_000
+		//
+		// `PW_REUSE_SERVER=1` opts into reusing an already-running preview. This is useful on
+		// memory-constrained machines where the build+preview may be OOM-killed mid-run: you
+		// build and start `vite preview` yourself, then point Playwright at it.
+		reuseExistingServer: process.env.PW_REUSE_SERVER === '1',
+		timeout: 240_000
 	}
 });

@@ -28,6 +28,11 @@ build produksi (bukan hanya dev).
 - [ ] ⬜ manual — Wajah tidak dikenali menampilkan opsi coba lagi & manual
 - [ ] ⬜ manual — Beberapa wajah terdeteksi ditolak dengan pesan jelas
 - [ ] ⬜ manual — Liveness/antispoof diuji (foto/tayangan ditolak)
+- [ ] ⬜ manual — Mode tantangan (berkedip) diuji bila diaktifkan di Pengaturan
+- [ ] ⬜ manual — Pemrosesan Web Worker aktif (UI tidak tersendat saat memindai)
+- [ ] ⬜ manual — Pesan khusus muncul bila model wajah tidak ditemukan
+- [ ] ⬜ manual — Kartu QR dapat dibuat & dicetak untuk siswa
+- [ ] ⬜ manual — Absensi via pemindai QR berhasil & kode QR asing diabaikan
 
 ## PWA & Offline
 
@@ -46,8 +51,17 @@ build produksi (bukan hanya dev).
 
 - [ ] ✅ otomatis — Migrasi skema v1 → v2 teruji dan tidak menghapus data
 - [ ] ✅ otomatis — Anti-duplikat absensi teruji (termasuk race concurrent)
+- [ ] ✅ otomatis — Taksonomi error penyimpanan (quota/blocked/unavailable) teruji
+- [ ] ✅ otomatis — Sinkronisasi antar-tab (BroadcastChannel) teruji
 - [ ] ⬜ manual — Data bertahan setelah refresh & restart browser
 - [ ] ⬜ manual — Penyimpanan persisten (`navigator.storage.persist`) diuji
+- [ ] ⬜ manual — Quota penuh menampilkan pesan yang dapat ditindaklanjuti
+- [ ] ⬜ manual — Membuka dua tab: perubahan di satu tab muncul di tab lain
+
+## Mode Kios
+
+- [ ] ⬜ manual — Mode Kios menyembunyikan navigasi & meminta layar penuh
+- [ ] ⬜ manual — Keluar Kios (tombol / Esc) memulihkan navigasi
 
 ## Laporan & Ekspor
 
@@ -66,6 +80,7 @@ build produksi (bukan hanya dev).
 - [ ] ✅ otomatis — Restore menggantikan data dengan benar
 - [ ] ⬜ manual — Backup → reset → restore menghasilkan data ekuivalen pada perangkat nyata
 - [ ] ⬜ manual — File backup sesuai format (`absensi-backup-YYYY-MM-DD.enc`)
+- [ ] ⬜ manual — Banner pengingat backup muncul saat backup kedaluwarsa
 
 ## Keamanan & Privasi
 

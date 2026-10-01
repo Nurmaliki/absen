@@ -289,3 +289,58 @@ test.describe('reset', () => {
 		});
 	});
 });
+
+test.describe('kiosk + QR fallback', () => {
+	test('enters kiosk mode and hides the navigation chrome', async ({ page }) => {
+		await completeOnboarding(page);
+		await createClass(page, '7A');
+		await createStudent(page, '10001', 'Ahmad Fauzi', '7A');
+
+		await page.goto('/attendance');
+		await page.getByRole('button', { name: 'Mulai Absensi' }).click();
+		await expect(page.getByText(/ABSENSI KELAS 7A/)).toBeVisible();
+
+		// Sidebar nav is present before kiosk.
+		await expect(page.getByRole('navigation').first()).toBeVisible();
+
+		await page.getByRole('button', { name: 'Mode Kios' }).click();
+		// In kiosk the exit control replaces the enter control and nav is gone.
+		await expect(page.getByRole('button', { name: 'Keluar Kios' })).toBeVisible();
+		await expect(page.getByRole('navigation')).toHaveCount(0);
+
+		await page.getByRole('button', { name: 'Keluar Kios' }).click();
+		await expect(page.getByRole('button', { name: 'Mode Kios' })).toBeVisible();
+	});
+
+	test('offers a QR scan mode as an attendance fallback', async ({ page }) => {
+		await completeOnboarding(page);
+		await createClass(page, '7A');
+		await createStudent(page, '10001', 'Ahmad Fauzi', '7A');
+
+		await page.goto('/attendance');
+		await page.getByRole('button', { name: 'Mulai Absensi' }).click();
+
+		// Switch to the QR card mode.
+		await page.getByRole('button', { name: 'Kartu QR' }).click();
+		await expect(page.getByRole('button', { name: 'Aktifkan Pemindai QR' })).toBeVisible();
+
+		// Switch back to face mode.
+		await page.getByRole('button', { name: 'Wajah' }).click();
+		await expect(page.getByText(/Arahkan wajah ke kamera/).first()).toBeVisible();
+	});
+
+	test('shows a printable QR card on the student page', async ({ page }) => {
+		await completeOnboarding(page);
+		await createClass(page, '7A');
+		await createStudent(page, '10001', 'Ahmad Fauzi', '7A');
+
+		await page.goto('/students');
+		await page.getByLabel('Registrasi wajah Ahmad Fauzi').click();
+		await expect(page.getByRole('heading', { name: /Registrasi Wajah/i })).toBeVisible();
+
+		// The QR card section renders an SVG code and a print action.
+		await expect(page.getByText(/Kartu QR \(Cadangan\)/i)).toBeVisible();
+		await expect(page.locator('[aria-label="Kode QR absensi"] svg')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Cetak Kartu' })).toBeVisible();
+	});
+});

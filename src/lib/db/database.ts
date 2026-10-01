@@ -1,4 +1,5 @@
 import Dexie, { type Table } from 'dexie';
+import { toStorageError } from './errors';
 import type {
 	AppSettings,
 	AttendanceRecord,
@@ -84,17 +85,61 @@ export function isBrowser(): boolean {
 	return typeof window !== 'undefined' && typeof indexedDB !== 'undefined';
 }
 
+/** Listeners invoked when the DB is blocked by another tab / needs a reload. */
+type DbLifecycleListener = (kind: 'blocked' | 'versionchange' | 'unavailable') => void;
+const lifecycleListeners = new Set<DbLifecycleListener>();
+
+/** Subscribe to DB lifecycle problems (blocked upgrade, forced versionchange). */
+export function onDbLifecycle(listener: DbLifecycleListener): () => void {
+	lifecycleListeners.add(listener);
+	return () => lifecycleListeners.delete(listener);
+}
+
+function emitLifecycle(kind: 'blocked' | 'versionchange' | 'unavailable'): void {
+	for (const listener of lifecycleListeners) {
+		try {
+			listener(kind);
+		} catch {
+			// A misbehaving listener must not break the others.
+		}
+	}
+}
+
 export function getDb(): AttendanceDatabase {
 	if (!isBrowser()) {
 		throw new Error('Database hanya dapat diakses di browser.');
 	}
-	if (!instance) instance = new AttendanceDatabase();
+	if (!instance) {
+		instance = new AttendanceDatabase();
+		// A newer schema (or another tab) is waiting: tell the UI so it can prompt a reload.
+		instance.on('blocked', () => emitLifecycle('blocked'));
+		instance.on('versionchange', () => {
+			instance?.close();
+			instance = null;
+			emitLifecycle('versionchange');
+		});
+		instance.on('close', () => {
+			// Dexie fires 'close' on unexpected closure (e.g. storage eviction).
+		});
+	}
 	return instance;
 }
 
 /** Inject a custom database (used by unit tests with fake-indexeddb). */
 export function setDb(db: AttendanceDatabase | null): void {
 	instance = db;
+}
+
+/**
+ * Run a DB operation with quota/availability errors translated into typed errors the UI
+ * can act on. Use this for writes that may run into a full-disk or blocked-tab situation.
+ */
+export async function withStorageGuards<T>(operation: () => Promise<T>): Promise<T> {
+	try {
+		return await operation();
+	} catch (error) {
+		throw toStorageError(error);
+	}
 }
 
 export const DB_NAME = 'absensi-wajah';

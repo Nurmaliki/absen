@@ -12,8 +12,12 @@
 	} from '$lib/utils/camera';
 
 	interface Props {
-		/** Called every processed frame with the capture canvas (already resized). */
-		onframe?: (canvas: HTMLCanvasElement) => void;
+		/**
+		 * Called every processed frame with the capture canvas (already resized).
+		 * May return a promise; the loop will not schedule the next *processed* frame until it
+		 * settles, which prevents overlapping inferences on slow devices.
+		 */
+		onframe?: (canvas: HTMLCanvasElement) => void | Promise<void>;
 		/** Hint text shown over the video. */
 		hint?: string;
 		/** Whether to draw the overlay bounding boxes. */
@@ -33,6 +37,12 @@
 	let frameLoop = 0;
 	let lastFrame = 0;
 	let autoStartTried = false;
+	/**
+	 * Single source of truth for "a frame is being processed". Consumers no longer need their
+	 * own guard: `processFrame` skips while `busy` is true, so slow engines simply drop frames
+	 * instead of queueing overlapping inferences.
+	 */
+	let busy = false;
 
 	/** Frames per second cap for engine processing (keeps CPU reasonable on phones). */
 	const TARGET_FPS = 8;
@@ -81,8 +91,15 @@
 
 	function processFrame() {
 		if (!video || !canvas || video.readyState < 2) return;
+		if (busy) return; // previous frame still being analysed — drop this one
 		captureFrame(video, canvas);
-		onframe?.(canvas);
+		const outcome = onframe?.(canvas);
+		if (outcome && typeof (outcome as Promise<void>).then === 'function') {
+			busy = true;
+			(outcome as Promise<void>).finally(() => {
+				busy = false;
+			});
+		}
 	}
 
 	async function switchDevice() {

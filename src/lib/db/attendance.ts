@@ -1,8 +1,9 @@
-import { getDb } from './database';
+import { getDb, withStorageGuards } from './database';
 import type { AttendanceRecord, AttendanceSession, AttendanceStatus } from '$lib/types';
 import { uuid } from '$lib/utils/id';
 import { clockTime, nowIso, todayDate } from '$lib/utils/time';
 import { writeAudit } from './audit';
+import { broadcastSync } from './sync';
 import { resolveTimedStatus } from '$lib/attendance/rules';
 
 /** Thrown when a student already has a record in the session (anti-duplicate rule). */
@@ -71,6 +72,7 @@ export async function openSession(input: SessionInput): Promise<AttendanceSessio
 		entityId: record.id,
 		description: `Membuka sesi absensi ${date} ${record.startTime}`
 	});
+	broadcastSync({ kind: 'attendance:changed', sessionId: record.id });
 	return record;
 }
 
@@ -116,6 +118,7 @@ export async function closeSession(
 				: ''
 		}`
 	});
+	broadcastSync({ kind: 'attendance:changed', sessionId });
 }
 
 export async function listRecordsForSession(sessionId: string): Promise<AttendanceRecord[]> {
@@ -151,36 +154,39 @@ export async function recordFaceAttendance(params: {
 	const now = params.at ?? new Date();
 	const timestamp = nowIso();
 
-	return db.transaction('rw', db.attendanceRecords, db.auditLogs, async () => {
-		const existing = await db.attendanceRecords
-			.where('[sessionId+studentId]')
-			.equals([params.sessionId, params.studentId])
-			.first();
-		if (existing) throw new DuplicateAttendanceError(existing);
+	return withStorageGuards(() =>
+		db.transaction('rw', db.attendanceRecords, db.auditLogs, async () => {
+			const existing = await db.attendanceRecords
+				.where('[sessionId+studentId]')
+				.equals([params.sessionId, params.studentId])
+				.first();
+			if (existing) throw new DuplicateAttendanceError(existing);
 
-		const status = resolveTimedStatus(now.getHours() * 60 + now.getMinutes(), params.lateAfter);
-		const record: AttendanceRecord = {
-			id: uuid(),
-			sessionId: params.sessionId,
-			studentId: params.studentId,
-			status,
-			attendanceTime: timestamp,
-			recognitionScore: params.recognitionScore,
-			recognitionDistance: params.recognitionDistance,
-			method: 'face',
-			createdAt: timestamp,
-			updatedAt: timestamp
-		};
-		await db.attendanceRecords.add(record);
-		// Audit shares the transaction so the record and its log commit atomically.
-		await writeAudit({
-			action: 'attendance_face',
-			entityType: 'attendanceRecord',
-			entityId: record.id,
-			description: `Absensi wajah tercatat (${status})`
-		});
-		return record;
-	});
+			const status = resolveTimedStatus(now.getHours() * 60 + now.getMinutes(), params.lateAfter);
+			const record: AttendanceRecord = {
+				id: uuid(),
+				sessionId: params.sessionId,
+				studentId: params.studentId,
+				status,
+				attendanceTime: timestamp,
+				recognitionScore: params.recognitionScore,
+				recognitionDistance: params.recognitionDistance,
+				method: 'face',
+				createdAt: timestamp,
+				updatedAt: timestamp
+			};
+			await db.attendanceRecords.add(record);
+			// Audit shares the transaction so the record and its log commit atomically.
+			await writeAudit({
+				action: 'attendance_face',
+				entityType: 'attendanceRecord',
+				entityId: record.id,
+				description: `Absensi wajah tercatat (${status})`
+			});
+			broadcastSync({ kind: 'attendance:changed', sessionId: params.sessionId });
+			return record;
+		})
+	);
 }
 
 /**
@@ -200,36 +206,39 @@ export async function recordManualAttendance(params: {
 	const db = getDb();
 	const timestamp = nowIso();
 
-	return db.transaction('rw', db.attendanceRecords, db.auditLogs, async () => {
-		const existing = await db.attendanceRecords
-			.where('[sessionId+studentId]')
-			.equals([params.sessionId, params.studentId])
-			.first();
-		if (existing) throw new DuplicateAttendanceError(existing);
+	return withStorageGuards(() =>
+		db.transaction('rw', db.attendanceRecords, db.auditLogs, async () => {
+			const existing = await db.attendanceRecords
+				.where('[sessionId+studentId]')
+				.equals([params.sessionId, params.studentId])
+				.first();
+			if (existing) throw new DuplicateAttendanceError(existing);
 
-		const status = params.status;
+			const status = params.status;
 
-		const record: AttendanceRecord = {
-			id: uuid(),
-			sessionId: params.sessionId,
-			studentId: params.studentId,
-			status,
-			attendanceTime: timestamp,
-			method: 'manual',
-			notes: params.notes,
-			createdAt: timestamp,
-			updatedAt: timestamp
-		};
-		await db.attendanceRecords.add(record);
-		// Audit shares the transaction so the record and its log commit atomically.
-		await writeAudit({
-			action: 'attendance_manual',
-			entityType: 'attendanceRecord',
-			entityId: record.id,
-			description: `Absensi manual (${status})${params.notes ? `: ${params.notes}` : ''}`
-		});
-		return record;
-	});
+			const record: AttendanceRecord = {
+				id: uuid(),
+				sessionId: params.sessionId,
+				studentId: params.studentId,
+				status,
+				attendanceTime: timestamp,
+				method: 'manual',
+				notes: params.notes,
+				createdAt: timestamp,
+				updatedAt: timestamp
+			};
+			await db.attendanceRecords.add(record);
+			// Audit shares the transaction so the record and its log commit atomically.
+			await writeAudit({
+				action: 'attendance_manual',
+				entityType: 'attendanceRecord',
+				entityId: record.id,
+				description: `Absensi manual (${status})${params.notes ? `: ${params.notes}` : ''}`
+			});
+			broadcastSync({ kind: 'attendance:changed', sessionId: params.sessionId });
+			return record;
+		})
+	);
 }
 
 /** Correct an existing record's status/notes. Always audited. */
@@ -250,6 +259,7 @@ export async function correctAttendance(
 			patch.notes ? ` (${patch.notes})` : ''
 		}`
 	});
+	broadcastSync({ kind: 'attendance:changed', sessionId: existing.sessionId });
 }
 
 export async function deleteAttendance(recordId: string): Promise<void> {
@@ -262,6 +272,7 @@ export async function deleteAttendance(recordId: string): Promise<void> {
 		entityId: recordId,
 		description: `Menghapus catatan absensi${existing ? ` (${existing.status})` : ''}`
 	});
+	broadcastSync({ kind: 'attendance:changed', sessionId: existing?.sessionId });
 }
 
 /** Records across many sessions, for history and reports. */

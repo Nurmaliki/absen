@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import FaceCapture from '$lib/components/FaceCapture.svelte';
+	import StudentQrCode from '$lib/components/StudentQrCode.svelte';
 	import Spinner from '$lib/components/Spinner.svelte';
 	import { getFaceEngine } from '$lib/face/engine';
 	import {
@@ -203,6 +204,21 @@
 			toasts.error(e instanceof Error ? e.message : 'Gagal menghapus data wajah.');
 		}
 	}
+
+	/** Open a print-friendly window containing just the QR card. */
+	function printQrCard() {
+		if (!student) return;
+		const url = `${location.origin}/students/${student.id}/face`;
+		const win = window.open(url, '_blank');
+		if (!win) {
+			toasts.warning('Izinkan pop-up untuk mencetak kartu, lalu tekan Ctrl/Cmd + P.');
+			return;
+		}
+		win.addEventListener('load', () => {
+			win.focus();
+			win.print();
+		});
+	}
 </script>
 
 {#if loading}
@@ -228,6 +244,18 @@
 			<button class="btn-secondary" onclick={removeExisting}>Hapus Wajah Lama</button>
 		</div>
 	{/if}
+
+	<div class="card mb-4">
+		<h2 class="text-sm font-semibold text-slate-700 dark:text-slate-200">Kartu QR (Cadangan)</h2>
+		<p class="mt-1 text-xs text-slate-500">
+			Cetak atau tampilkan kartu ini sebagai cadangan bila pengenalan wajah gagal. Kartu hanya
+			berisi ID siswa lokal — tidak ada data yang dikirim ke mana pun.
+		</p>
+		<div class="mt-3">
+			<StudentQrCode {student} />
+		</div>
+		<button class="btn-secondary mt-3" onclick={printQrCard}>Cetak Kartu</button>
+	</div>
 
 	<div class="grid gap-4 lg:grid-cols-2">
 		<div>

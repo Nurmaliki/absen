@@ -34,6 +34,7 @@
 		recognitionThreshold: 0.5,
 		recognitionMargin: 0.08,
 		livenessEnabled: true,
+		livenessChallengeEnabled: false,
 		autoLockMinutes: 15,
 		backupReminderDays: 7
 	});
@@ -54,6 +55,7 @@
 				recognitionThreshold: settings.recognitionThreshold,
 				recognitionMargin: settings.recognitionMargin,
 				livenessEnabled: settings.livenessEnabled,
+				livenessChallengeEnabled: settings.livenessChallengeEnabled ?? false,
 				autoLockMinutes: settings.autoLockMinutes,
 				backupReminderDays: settings.backupReminderDays
 			};
@@ -202,6 +204,15 @@
 			<label class="mt-3 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
 				<input type="checkbox" bind:checked={form.livenessEnabled} class="rounded" />
 				Aktifkan Liveness (anti-spoof) — disarankan untuk produksi
+			</label>
+			<label class="mt-2 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+				<input
+					type="checkbox"
+					bind:checked={form.livenessChallengeEnabled}
+					class="rounded"
+					disabled={!form.livenessEnabled}
+				/>
+				Wajibkan gerakan (berkedip) sebelum absensi diterima — lebih kuat, sedikit lebih lambat
 			</label>
 
 			<h2 class="mt-5 text-sm font-semibold text-slate-700 dark:text-slate-200">

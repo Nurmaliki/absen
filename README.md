@@ -29,10 +29,11 @@ riwayat, laporan harian/bulanan, ekspor, backup/restore terenkripsi, PWA offline
 
 ## Requirements
 
-- **Node.js** 22 (LTS) direkomendasikan; 20/22/24 didukung adapter Vercel. Deployment dipatok ke
-  `runtime: 'nodejs22.x'` di `svelte.config.js`, dan `package.json` memakai `"engines": { "node": ">=22 <23" }`.
-  Node yang lebih baru (mis. 26) tetap dapat dipakai untuk build lokal karena runtime deployment
-  sudah dipatok.
+- **Node.js** 24 direkomendasikan; 22/24 didukung adapter Vercel, tetapi dependensi QR
+  (`@zxing/library` via `@zxing/browser`) mensyaratkan Node ≥ 24, sehingga deployment dipatok ke
+  `runtime: 'nodejs24.x'` di `svelte.config.js` dan `package.json` memakai
+  `"engines": { "node": ">=24 <27" }`. Node yang lebih baru (mis. 26) tetap dapat dipakai untuk
+  build lokal karena runtime deployment sudah dipatok.
 - **npm** 10+.
 - Browser modern dengan IndexedDB, Web Crypto, dan `getUserMedia` (Chrome, Edge, Safari, Firefox
   terbaru).

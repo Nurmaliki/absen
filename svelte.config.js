@@ -5,9 +5,9 @@ import { vitePreprocess } from '@sveltejs/vite-plugin-svelte';
 const config = {
 	preprocess: vitePreprocess(),
 	kit: {
-		// Pin the Vercel runtime: local builds often run a newer Node than the deployment
-		// target, and nodejs20.x is discontinued on Vercel. nodejs22.x is the current LTS.
-		adapter: adapter({ runtime: 'nodejs22.x' }),
+		// Pin the Vercel runtime. nodejs20.x is discontinued on Vercel, and our QR dependency
+		// (`@zxing/library` via `@zxing/browser`) requires Node >= 24, so 24.x is the floor.
+		adapter: adapter({ runtime: 'nodejs24.x' }),
 		serviceWorker: {
 			// Registration is handled by vite-plugin-pwa's `virtual:pwa-register`
 			// (see PwaUpdatePrompt.svelte); SvelteKit's own auto-registration is disabled
